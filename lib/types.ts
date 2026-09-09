@@ -39,7 +39,7 @@ export type ImageStyle = "photo" | "illust";
  * ⚠️ 6개 이상 강제를 모든 모드에 적용하면 안 됩니다. 사진이 4장뿐인 local 모드에서는
  *    6개를 만들 수 없어 재시도만 3번 돌다 실패합니다.
  */
-export function draftSchemaFor(photoSource: PhotoSource, localCount = 0) {
+export function draftSchemaFor(photoSource: PhotoSource, localCount = 0): z.ZodType<Draft> {
   if (photoSource === "none") {
     return DraftSchema.refine(
       (d) => d.sections.every((s) => s.type !== "image"),
