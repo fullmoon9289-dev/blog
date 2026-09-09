@@ -11,6 +11,7 @@ const STEPS: [string, string][] = [
   ["claude 래퍼", "scripts/verify-claude.mts"],
   ["이미지 판독(비전)", "scripts/verify-vision.mts"],
   ["비전 판정 필터 (6-6)", "scripts/verify-vision-judge.mts"],
+  ["크롤링 경로 (6-6)", "scripts/verify-crawl.mts"],
   ["글쓰기 (6-5)", "scripts/verify-writing.mts"],
 ];
 

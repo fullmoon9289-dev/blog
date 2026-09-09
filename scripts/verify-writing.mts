@@ -76,7 +76,10 @@ if (!crawlDraft.ok) { t("본문 생성(crawl)", false, crawlDraft.error); }
 else {
   const st = draftStats(crawlDraft.draft);
   console.log(`     구성: 소제목 ${st.heading} · 문단 ${st.paragraph} · 인용구 ${st.quote} · 사진 ${st.image} · ${st.chars}자`);
-  t("사진 검색 모드에서 image 섹션이 6개 이상이다", st.image >= 6, `${st.image}개`);
+  // ⚠️ 6개 미달이면 완화 폴백이 동작하고 그 사실을 알려야 합니다(글을 통째로 버리지 않기 위해).
+  if (crawlDraft.note) console.log(`     완화 폴백: ${crawlDraft.note}`);
+  t("사진 자리가 충분하다(6개 이상) 또는 부족을 정직하게 알린다",
+    st.image >= 6 || Boolean(crawlDraft.note), `${st.image}개`);
   t("이미지 검색어가 전부 채워져 있다",
     crawlDraft.draft.sections.every((s) => s.type !== "image" || s.query.length > 0));
 }

@@ -5,7 +5,7 @@ import { getSettings } from "@/lib/settings";
 import { collectSources } from "@/lib/scrape/trends";
 import { generateIdeas, generateDraft, draftStats } from "@/lib/ai/content";
 import { headingAsQuote } from "@/lib/ai/templates";
-import { fillOneSlot, jobImageDir } from "@/lib/scrape/images";
+import { fillSlots, jobImageDir } from "@/lib/scrape/images";
 import { generateForSlot, contextAround, cloudflareConfigured } from "@/lib/ai/imagegen";
 import { verdictReason } from "@/lib/ai/vision";
 import { listPhotos, describePhotos, placePhotos, type PlacementMode } from "@/lib/localPhotos";
@@ -99,14 +99,13 @@ async function fillImages(
     return placed;
   }
 
-  const out: (string | null)[] = [];
   const dir = jobImageDir(jobId);
 
-  for (let k = 0; k < slots.length; k++) {
-    const { i, sec } = slots[k];
-    jobLog(jobId, `사진 ${k + 1}/${slots.length}: ${sec.query}`);
-
-    if (opts.photoSource === "ai") {
+  if (opts.photoSource === "ai") {
+    const out: (string | null)[] = [];
+    for (let k = 0; k < slots.length; k++) {
+      const { i, sec } = slots[k];
+      jobLog(jobId, `사진 ${k + 1}/${slots.length}: ${sec.query}`);
       const around = contextAround(draft.sections, i);
       const r = await generateForSlot(
         draft.title, sec.query, sec.caption, around, opts.imageStyle, s.cfImageSteps,
@@ -116,14 +115,20 @@ async function fillImages(
         r.ok ? 1 : 0, r.reason, i, r.prompt ?? null);
       out.push(r.ok ? (r.localPath ?? null) : null);
       if (!r.ok) jobLog(jobId, `사진을 못 만들어 이 자리는 비웁니다: ${r.reason}`, "warn");
-      continue;
     }
+    return out;
+  }
 
-    // crawl
-    const around = contextAround(draft.sections, i);
-    const res = await fillOneSlot(dir, { query: sec.query, title: draft.title, around }, s.imageCandidates,
-      (m) => jobLog(jobId, m));
+  // crawl — 브라우저를 한 번만 띄워 자리 전부를 처리합니다.
+  const results = await fillSlots(
+    dir,
+    slots.map(({ i, sec }) => ({ query: sec.query, title: draft.title, around: contextAround(draft.sections, i) })),
+    s.imageCandidates,
+    (m) => jobLog(jobId, m),
+  );
 
+  return results.map((res, k) => {
+    const { i, sec } = slots[k];
     // ⚠️ 6-6. 탈락한 이미지도 사유와 함께 기록합니다.
     //    워터마크·초상권 필터가 실제로 동작하는지 사용자가 확인할 유일한 통로입니다.
     for (const a of res.attempts) {
@@ -131,10 +136,9 @@ async function fillImages(
       record.run(jobId, draftId, sec.query, a.srcUrl, a.localPath, a.sourceSite,
         ok ? 1 : 0, verdictReason(a.verdict), i, null);
     }
-    out.push(res.accepted?.localPath ?? null);
-    if (!res.accepted) jobLog(jobId, `쓸 만한 사진을 못 찾아 이 자리는 비웁니다.`, "warn");
-  }
-  return out;
+    if (!res.accepted) jobLog(jobId, `"${sec.query}" 자리에 쓸 만한 사진을 못 찾아 비웁니다.`, "warn");
+    return res.accepted?.localPath ?? null;
+  });
 }
 
 // ── 메인 오케스트레이션 ──────────────────────────────────────────
@@ -202,6 +206,7 @@ export async function runJob(jobId: number): Promise<void> {
       userContent: inputs.userContent,
     });
     if (!d.ok) { setJobError(jobId, d.error); jobLog(jobId, d.error, "error"); return; }
+    if (d.note) jobLog(jobId, d.note, "warn");
     if (d.droppedHighlights > 0) {
       jobLog(jobId, `본문에 없는 강조 구절 ${d.droppedHighlights}개를 걸러냈습니다.`, "warn");
     }

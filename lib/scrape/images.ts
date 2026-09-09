@@ -82,54 +82,68 @@ export type SlotResult = {
   attempts: ImageAttempt[];
 };
 
+export type SlotRequest = { query: string; title: string; around?: string };
+
 /**
- * 이미지 자리 하나를 채웁니다.
+ * 이미지 자리들을 채웁니다.
  * ⚠️ 6-6. 크롤링 채택률은 생각보다 훨씬 낮습니다. 한 실측에서 네이버 후보 3장이 전부
  *   워터마크로 탈락했습니다(네이버페이 배너 / 손글씨 서명 / 브랜드 로고 합성 썸네일).
  *   imageCandidates 를 낮추면 그 자리가 그냥 빕니다. 실사용에서는 10 이상 권장.
+ *
+ * ⚠️ 자리마다 브라우저를 새로 띄우지 않습니다. 자리가 7개면 7번 띄우게 되어
+ *   느리고 실패 지점만 늘어납니다. 한 번 띄워 전부 처리합니다.
  */
-export async function fillOneSlot(
+export async function fillSlots(
   jobDir: string,
-  ctx: { query: string; title: string; around?: string },
+  slots: SlotRequest[],
   candidateLimit: number,
   onLog?: (msg: string) => void,
-): Promise<SlotResult> {
+  /** 테스트 전용 — 검색 URL 을 바꿔 끼웁니다(네이버 없이 이 경로를 검증하기 위해). */
+  urlsFor?: (query: string) => string[],
+): Promise<SlotResult[]> {
   ensureDataDirs();
   fs.mkdirSync(jobDir, { recursive: true });
 
   const { browser, context } = await newContext({ headless: true });
-  const attempts: ImageAttempt[] = [];
+  const results: SlotResult[] = [];
   try {
     const page = await context.newPage();
-
-    let site: "naver" | "google" = "naver";
-    let urls = await candidatesFrom(page, NAVER.imageSearch(ctx.query), candidateLimit);
-    if (urls.length === 0) {
-      site = "google";
-      urls = await candidatesFrom(page, NAVER.googleImageSearch(ctx.query), candidateLimit);
-    }
-    onLog?.(`"${ctx.query}" 후보 ${urls.length}장 (${site === "naver" ? "네이버" : "구글"})`);
-
-    for (const url of urls) {
-      const local = await download(context, url, jobDir);
-      if (!local) {
-        attempts.push({
-          srcUrl: url, localPath: null, sourceSite: site,
-          verdict: { fit: false, watermark: false, koreanPerson: false, reason: "내려받기 실패 또는 너무 작은 이미지" },
-        });
-        continue;
+    for (const ctx of slots) {
+      const attempts: ImageAttempt[] = [];
+      const [primary, fallback] = urlsFor?.(ctx.query)
+        ?? [NAVER.imageSearch(ctx.query), NAVER.googleImageSearch(ctx.query)];
+      let site: "naver" | "google" = "naver";
+      let urls = await candidatesFrom(page, primary, candidateLimit);
+      if (urls.length === 0 && fallback) {
+        site = "google";
+        urls = await candidatesFrom(page, fallback, candidateLimit);
       }
-      const verdict = await judgeCrawlImage(local, ctx);
-      attempts.push({ srcUrl: url, localPath: local, sourceSite: site, verdict });
+      onLog?.(`"${ctx.query}" 후보 ${urls.length}장 (${site === "naver" ? "네이버" : "구글"})`);
 
-      if (verdict.fit) {
-        onLog?.(`채택: ${verdict.reason}`);
-        return { accepted: { localPath: local, srcUrl: url, sourceSite: site }, attempts };
+      let accepted: SlotResult["accepted"] = null;
+      for (const url of urls) {
+        const local = await download(context, url, jobDir);
+        if (!local) {
+          attempts.push({
+            srcUrl: url, localPath: null, sourceSite: site,
+            verdict: { fit: false, watermark: false, koreanPerson: false, reason: "내려받기 실패 또는 너무 작은 이미지" },
+          });
+          continue;
+        }
+        const verdict = await judgeCrawlImage(local, ctx);
+        attempts.push({ srcUrl: url, localPath: local, sourceSite: site, verdict });
+
+        if (verdict.fit) {
+          onLog?.(`채택: ${verdict.reason}`);
+          accepted = { localPath: local, srcUrl: url, sourceSite: site };
+          break;
+        }
+        onLog?.(`탈락: ${verdictReason(verdict)}`);
+        // 탈락한 파일은 지우지 않습니다 — 사용자가 필터 동작을 확인할 수 있어야 합니다.
       }
-      onLog?.(`탈락: ${verdictReason(verdict)}`);
-      // 탈락한 파일은 지우지 않습니다 — 사용자가 필터 동작을 확인할 수 있어야 합니다.
+      results.push({ accepted, attempts });
     }
-    return { accepted: null, attempts };
+    return results;
   } finally {
     await closeQuietly(browser);
   }

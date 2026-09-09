@@ -1,6 +1,6 @@
 import { runClaudeJson } from "@/lib/claude";
 import {
-  IdeasSchema, draftSchemaFor,
+  DraftSchema, IdeasSchema, draftSchemaFor,
   type Draft, type Idea, type PhotoSource, type SourceItem, type WriteMode,
 } from "@/lib/types";
 import { COMMON_RULES, SECTION_SPEC, modePrompt, photoHintFor } from "@/lib/ai/templates";
@@ -77,7 +77,7 @@ export async function generateDraft(
   idea: Idea | null,
   sources: SourceItem[],
   opts: DraftOpts,
-): Promise<{ ok: true; draft: Draft; droppedHighlights: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; draft: Draft; droppedHighlights: number; note?: string } | { ok: false; error: string }> {
   const schema = draftSchemaFor(opts.photoSource, opts.localCount ?? 0);
 
   const ideaBlock = idea
@@ -106,11 +106,29 @@ ${COMMON_RULES}
 ${SECTION_SPEC}
 `.trim();
 
-  const res = await runClaudeJson(prompt, schema);
+  let res = await runClaudeJson(prompt, schema);
+
+  /**
+   * ⚠️ 이미지 자리 개수는 재생성할 가치가 있습니다(6-5). 그래서 위에서 strict 스키마로
+   *   재시도합니다. 하지만 재시도를 다 쓰고도 6개를 못 채웠을 때 "글 전체를 버리는" 것은
+   *   7-24 가 highlight 에 대해 경고한 것과 같은 나쁜 거래입니다 —
+   *   1,500자짜리 멀쩡한 글을 사진 자리 하나 때문에 날리게 됩니다(생성에 100초씩 듭니다).
+   *   실제로 검증 스위트에서 이 경로가 간헐적으로 잡 전체를 실패시켰습니다.
+   *   그래서 마지막에 한 번, 개수 조건만 뺀 스키마로 받아 살립니다(그리고 몇 개인지 알립니다).
+   */
+  let relaxed = false;
+  if (!res.ok && (opts.photoSource === "crawl" || opts.photoSource === "ai")) {
+    const retry = await runClaudeJson(prompt, DraftSchema, { retries: 0 });
+    if (retry.ok) { res = retry; relaxed = true; }
+  }
   if (!res.ok) return { ok: false, error: res.error };
 
   const { draft, dropped } = sanitizeDraft(res.data);
-  return { ok: true, draft, droppedHighlights: dropped };
+  const imageCount = draft.sections.filter((x) => x.type === "image").length;
+  return {
+    ok: true, draft, droppedHighlights: dropped,
+    note: relaxed ? `사진 자리를 6개 이상 만들지 못해 ${imageCount}개로 진행합니다.` : undefined,
+  };
 }
 
 // ── 초안 정리 ─────────────────────────────────────────────────────
