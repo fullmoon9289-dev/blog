@@ -1,0 +1,32 @@
+<!-- 네이버 검색 결과에서 실제로 나온 노이즈들을 재현한 픽스처. 6-4 의 필터를 검증합니다. -->
+<body>
+<ul>
+  <!-- ① 정상 뉴스: 같은 기사가 [제목 링크] + [스니펫 링크] 로 두 번 잡힌다 -->
+  <li>
+    <a href="https://n.news.naver.com/mnews/article/001/0011112222">전기차 보조금 개편안 내달 확정</a>
+    <a href="https://n.news.naver.com/mnews/article/001/0011112222">정부가 내년도 전기차 보조금 지급 기준을 손질하기로 하면서 업계의 셈법이 복잡해지고 있다는 분석이 나온다</a>
+    <span>2시간 전</span>
+  </li>
+
+  <!-- ② '새 창 열림' 보조 텍스트 — 11자라 길이 필터를 그냥 통과한다 -->
+  <li><a href="https://n.news.naver.com/mnews/article/002/0022223333">네이버뉴스새 창 열림</a></li>
+
+  <!-- ③ 네이버 고객센터 — href 에 '/news/' 가 부분일치한다 -->
+  <li><a href="https://help.naver.com/alias/news/news_21.naver">뉴스 기사와 댓글로 인한 문제 발생시 24시간 센터로 접수해주세요</a></li>
+
+  <!-- ④ 노이즈 텍스트 -->
+  <li><a href="https://n.news.naver.com/mnews/article/003/0033334444">언론사 선정 주요뉴스</a></li>
+  <li><a href="https://n.news.naver.com/mnews/article/004/0044445555">더보기</a></li>
+
+  <!-- ⑤ 또 다른 정상 뉴스 -->
+  <li>
+    <a href="https://news.naver.com/main/read.naver?oid=005&aid=0055556666">충전 인프라 확충 속도 낸다새 창 열림</a>
+    <span>업계에 따르면 올해 급속충전기 설치 목표는 전년 대비 40% 늘어난 규모다</span>
+  </li>
+
+  <!-- ⑥ 블로그 게시글 (통과) 과 블로그 홈 (탈락) -->
+  <li><a href="https://blog.naver.com/someblogger/223456789012">전기차 1년 타본 솔직 후기 정리</a><span>충전 요금부터 겨울철 주행거리까지 직접 겪은 내용을 적어봤습니다</span></li>
+  <li><a href="https://blog.naver.com/someblogger">someblogger 님의 블로그입니다</a></li>
+  <li><a href="https://blog.naver.com/PostList.naver?blogId=abc">이웃 블로그 목록 보러가기</a></li>
+</ul>
+</body>
