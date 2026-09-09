@@ -1,0 +1,188 @@
+<!-- 로컬 하네스: 스마트에디터 ONE 의 "구조와 함정"을 흉내 냅니다 (9장 6.5-a).
+     ⚠️ 이것은 입력 "순서"를 검증하는 것이지 셀렉터를 검증하는 것이 아닙니다. -->
+<meta charset="utf-8">
+<style>
+  body { margin:0; font:14px sans-serif; }
+  .se-toolbar { position:sticky; top:0; background:#f6f6f6; border-bottom:1px solid #ddd; padding:6px; z-index:5; }
+  .se-toolbar button { margin:2px; }
+  .se-content { min-height:600px; padding:16px 24px 240px; }
+  .se-component { padding:6px 0; }
+  .se-component.se-quote .se-text-paragraph { border-left:4px solid #666; padding-left:12px; font-style:italic; }
+  .se-section-documentTitle .se-text-paragraph { font-size:24px; font-weight:700; border-bottom:1px solid #eee; padding:8px 0; }
+  .se-text-paragraph { outline:none; min-height:22px; }
+  .se-popup-dim { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:50; }
+  .se-popup-container { position:fixed; left:50%; top:30%; transform:translateX(-50%);
+    background:#fff; padding:20px; z-index:60; border:1px solid #999; }
+  .se-help-container { position:fixed; right:0; top:0; width:300px; height:100%; background:#333; color:#fff; z-index:40; padding:10px; }
+  .se-flayer-unified-toolbar-wrapper { position:fixed; left:0; right:0; bottom:0; background:#eee;
+    border-top:1px solid #ccc; padding:10px; z-index:30; }
+  .se-flayer-unified-search-input { width:60%; }
+  .dropdown { display:none; position:absolute; background:#fff; border:1px solid #999; padding:4px; z-index:20; }
+  .dropdown.open { display:block; }
+  .se-caption { display:block; height:0; overflow:hidden; color:#666; font-size:12px; outline:none; }
+  .se-caption.se-is-on { height:auto; padding:4px 0; }
+  .se-image img { max-width:320px; display:block; }
+  .se-sidebar { position:fixed; right:0; top:0; width:300px; height:100%; background:#224; color:#fff; z-index:45; padding:10px; }
+</style>
+
+<div class="se-popup-dim"></div>
+<div class="se-popup-container">
+  <p>작성 중인 글이 있습니다. 이어서 쓰시겠습니까?</p>
+  <button class="se-popup-button-cancel">취소</button>
+  <button class="se-popup-button-confirm">확인</button>
+</div>
+
+<div class="se-help-container se-help-panel">
+  도움말 패널
+  <button class="se-help-panel-close-button">닫기</button>
+</div>
+
+<div class="se-toolbar">
+  <button class="se-text-format-toolbar-button">문단 서식</button>
+  <span style="position:relative">
+    <span class="dropdown" id="fmt">
+      <button class="se-toolbar-option-text-format-sectionTitle-button">소제목</button>
+      <button class="se-toolbar-option-text-format-text-button">본문</button>
+      <button class="se-toolbar-option-text-format-quotation-button">인용구</button>
+    </span>
+  </span>
+  <button class="se-bold-toolbar-button">굵게</button>
+  <button class="se-background-color-toolbar-button">배경색</button>
+  <span style="position:relative">
+    <span class="dropdown" id="palette">
+      <button title="#fff8b2">노랑</button>
+      <button class="se-color-palette-no-color">없음</button>
+    </span>
+  </span>
+  <button class="se-insert-horizontal-line-default-toolbar-button">구분선</button>
+  <button class="se-image-toolbar-button">사진</button>
+  <!-- ⚠️ 7-1 재현: 이 버튼이 :has-text('취소') 에 부분일치합니다 -->
+  <button class="se-strikethrough-toolbar-button">취소선</button>
+</div>
+
+<div class="se-content">
+  <div class="se-component se-documentTitle se-section-documentTitle">
+    <div class="se-text-paragraph" contenteditable="true" data-role="title"></div>
+  </div>
+  <div class="se-component se-text se-section-text">
+    <div class="se-text-paragraph" contenteditable="true"></div>
+  </div>
+</div>
+
+<div class="se-flayer-unified-toolbar-wrapper">
+  글감 검색: <input class="se-flayer-unified-search-input" placeholder="여기로 타이핑이 새면 안 됩니다">
+</div>
+
+<input type="file" id="picker" style="display:none" accept="image/*">
+
+<script>
+// ── 계측기 ──────────────────────────────────────────────────
+window.__probe = { strikeClicks: 0, uploads: 0, escapePresses: 0 };
+
+const $ = (s) => document.querySelector(s);
+const content = $(".se-content");
+const bodyComp = () => content.querySelector(".se-section-text");
+
+// ⚠️ 7-1: 이 버튼이 눌리면 안 됩니다. 눌리면 실제 에디터에서는 글 전체에 취소선이 그어집니다.
+$(".se-strikethrough-toolbar-button").onclick = () => { window.__probe.strikeClicks++; };
+
+// 팝업 취소 → 팝업 + 차단막 제거 (7-3)
+$(".se-popup-button-cancel").onclick = () => {
+  $(".se-popup-container")?.remove();
+  $(".se-popup-dim")?.remove();
+};
+$(".se-help-panel-close-button").onclick = () => { $(".se-help-container")?.remove(); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") window.__probe.escapePresses++; });
+
+// 현재 편집 중인 컴포넌트
+function currentComp() {
+  const a = document.activeElement;
+  return a?.closest?.(".se-component") ?? content.lastElementChild;
+}
+function newParagraph() {
+  const d = document.createElement("div");
+  d.className = "se-component se-text se-section-text";
+  d.innerHTML = '<div class="se-text-paragraph" contenteditable="true"></div>';
+  content.appendChild(d);
+  d.querySelector(".se-text-paragraph").focus();
+  return d;
+}
+
+// 실제 에디터는 블록(컴포넌트) 모델입니다. Enter 는 새 컴포넌트를 만듭니다.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const a = document.activeElement;
+  if (!a || !a.classList.contains("se-text-paragraph")) return;
+  e.preventDefault();
+  const comp = a.closest(".se-component");
+  if (comp && comp.classList.contains("se-documentTitle")) {
+    // 제목에서 Enter → 본문으로 이동
+    content.querySelector(".se-section-text .se-text-paragraph")?.focus();
+    return;
+  }
+  newParagraph();
+});
+
+// ⚠️ 7-5 재현: 컴포넌트 밖 빈 영역을 "마우스로" 클릭해야만 새 문단이 생깁니다.
+//    키보드로는 탈출되지 않습니다.
+content.addEventListener("mousedown", (e) => {
+  if (e.target === content) { e.preventDefault(); newParagraph(); }
+});
+
+// 문단 서식 드롭다운
+$(".se-text-format-toolbar-button").onclick = () => $("#fmt").classList.toggle("open");
+$(".se-background-color-toolbar-button").onclick = () => $("#palette").classList.toggle("open");
+
+function setFormat(kind) {
+  const c = currentComp();
+  if (c && !c.classList.contains("se-documentTitle")) {
+    c.classList.remove("se-quote", "se-sectionTitle");
+    if (kind) c.classList.add(kind);
+  }
+  $("#fmt").classList.remove("open");
+  c?.querySelector(".se-text-paragraph")?.focus();
+}
+$(".se-toolbar-option-text-format-quotation-button").onclick = () => setFormat("se-quote");
+$(".se-toolbar-option-text-format-sectionTitle-button").onclick = () => setFormat("se-sectionTitle");
+$(".se-toolbar-option-text-format-text-button").onclick = () => setFormat(null);
+document.querySelectorAll("#palette button").forEach((b) => {
+  b.onclick = () => { $("#palette").classList.remove("open"); currentComp()?.querySelector(".se-text-paragraph")?.focus(); };
+});
+
+$(".se-insert-horizontal-line-default-toolbar-button").onclick = () => {
+  const d = document.createElement("div");
+  d.className = "se-component se-horizontalLine";
+  d.innerHTML = "<hr>";
+  content.appendChild(d);
+};
+
+// ── 사진 (7-7 / 7-18) ───────────────────────────────────────
+$(".se-image-toolbar-button").onclick = () => $("#picker").click();
+$("#picker").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  window.__probe.uploads++;
+  const d = document.createElement("div");
+  d.className = "se-component se-image";
+  // ⚠️ 7-18 재현: 캡션은 DOM 에 있지만 0×0 이고, 컴포넌트를 클릭해야 se-is-on 이 붙습니다.
+  d.innerHTML = '<img><div class="se-module se-module-text __se-unit se-is-empty se-caption" contenteditable="true"></div>';
+  d.querySelector("img").src = URL.createObjectURL(f);
+  d.addEventListener("click", () => {
+    const cap = d.querySelector(".se-caption");
+    cap.classList.add("se-is-on");
+  });
+  content.appendChild(d);
+  // ⚠️ 사진을 넣으면 우측 라이브러리 도크가 자동으로 열립니다 (7-21)
+  if (!document.querySelector(".se-sidebar")) {
+    const s = document.createElement("aside");
+    s.className = "se-sidebar se-sidebar-interaction se-sidebar-container-library";
+    s.innerHTML = '라이브러리<button class="se-sidebar-close-button">팝업 닫기</button>';
+    s.querySelector(".se-sidebar-close-button").onclick = () => s.remove();
+    document.body.appendChild(s);
+  }
+  // 캡션에 글자가 들어가면 se-is-empty 를 뗍니다.
+  d.querySelector(".se-caption").addEventListener("input", (ev) => {
+    ev.target.classList.toggle("se-is-empty", ev.target.textContent.length === 0);
+  });
+};
+</script>
