@@ -70,17 +70,40 @@ if (c.installed) {
   no("AI 에게 말 걸기", "앞 단계가 안 되어 건너뛰었습니다.", "위의 설치를 먼저 끝내주세요.");
 }
 
-// 4. 브라우저
+// 4. 브라우저 — 두 모드를 따로 확인합니다
+/**
+ * ⚠️ headless:true 만 확인하면 안 됩니다.
+ *   Playwright 는 "화면 없는 모드"와 "창을 띄우는 모드"가 서로 다른 실행 파일입니다
+ *   (chromium_headless_shell / chromium). 설치할 때도 따로 내려받습니다.
+ *   네이버 로그인은 "창을 띄우는 모드"를 쓰므로, 그쪽을 확인하지 않으면
+ *   점검은 통과하는데 로그인만 안 되는 일이 생깁니다 — 실제로 그렇게 됐습니다.
+ */
 try {
   const { browser } = await newContext({ headless: true });
   const v = browser.version();
   await closeQuietly(browser);
-  ok("자동 브라우저", v);
+  ok("자동 브라우저 (화면 없이)", v);
 } catch (e) {
-  no("자동 브라우저",
+  no("자동 브라우저 (화면 없이)",
     "네이버를 대신 다녀올 브라우저를 준비하지 못했습니다.",
     "명령어 창에 npx playwright install chromium 을 붙여넣어 설치해 주세요.",
     (e as Error).message);
+}
+
+console.log("     (다음 검사에서 빈 창이 잠깐 떴다 닫힙니다. 정상입니다)");
+try {
+  const { browser } = await newContext({ headless: false });
+  const v = browser.version();
+  await closeQuietly(browser);
+  ok("로그인 창 띄우기", v);
+} catch (e) {
+  const raw = (e as Error).message;
+  const missing = /Executable doesn'?t exist|please run|install/i.test(raw);
+  no("로그인 창 띄우기",
+    missing ? "네이버 로그인 창을 띄울 브라우저가 설치되지 않았습니다."
+            : "네이버 로그인 창을 띄우지 못했습니다.",
+    "명령어 창에 npx playwright install chromium 을 붙여넣어 실행한 뒤 다시 해보세요.",
+    raw);
 }
 
 // 5. 저장소

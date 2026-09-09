@@ -49,6 +49,39 @@ const PHOTOS: [PhotoSource, string, string][] = [
 
 const fileUrl = (p: string) => `/api/file?path=${encodeURIComponent(p)}`;
 
+/**
+ * ⚠️ 실패를 절대 삼키지 않는 API 호출.
+ *   전에는 fetch(...).then(x => x.json()) 만 썼습니다. 서버가 500(HTML 오류 페이지)을 주면
+ *   .json() 이 터지면서 처리되지 않은 예외가 되어, 사용자에게는 아무 안내도 안 뜨고
+ *   개발 배지에 "1 Issue" 만 남았습니다. 네이버 로그인에서 실제로 이 일이 벌어졌습니다.
+ *   이제는 어떤 실패든 사람이 읽는 문장으로 돌려줍니다.
+ */
+async function callApi<T>(url: string, init?: RequestInit): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    return { ok: false, error: "앱과 연결이 끊겼습니다. 앱을 켜둔 검은 창이 닫히지 않았는지 확인해 주세요." };
+  }
+
+  const body = await res.text();
+  let parsed: unknown = null;
+  try { parsed = body ? JSON.parse(body) : null; } catch { /* 아래에서 처리 */ }
+
+  if (parsed && typeof parsed === "object" && "error" in parsed) {
+    return { ok: false, error: String((parsed as { error: unknown }).error) };
+  }
+  if (!res.ok) {
+    // JSON 이 아닌 오류 페이지 — 앞부분만 잘라 단서를 남깁니다.
+    const hint = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    return { ok: false, error: `앱 안에서 문제가 생겼습니다 (${res.status}). ${hint || "앱을 켜둔 검은 창에 자세한 내용이 있습니다."}` };
+  }
+  if (parsed === null) {
+    return { ok: false, error: "앱이 알 수 없는 형식으로 답했습니다. 앱을 껐다 켜고 다시 시도해 주세요." };
+  }
+  return { ok: true, data: parsed as T };
+}
+
 export default function Page() {
   const [status, setStatus] = useState<Status | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -58,6 +91,7 @@ export default function Page() {
   const [liveLogs, setLiveLogs] = useState<LogRow[]>([]);
   const [drawer, setDrawer] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [err, setErr] = useState("");
 
   const [mode, setMode] = useState<Mode>("auto");
@@ -73,18 +107,22 @@ export default function Page() {
 
   const refresh = useCallback(async (hard = false) => {
     const [s, u, j] = await Promise.all([
-      fetch(`/api/status${hard ? "?refresh=1" : ""}`).then((r) => r.json()),
-      fetch("/api/usage").then((r) => r.json()),
-      fetch("/api/jobs").then((r) => r.json()),
+      callApi<Status>(`/api/status${hard ? "?refresh=1" : ""}`),
+      callApi<Usage>("/api/usage"),
+      callApi<{ jobs: JobRow[] }>("/api/jobs"),
     ]);
-    setStatus(s); setUsage(u); setJobs(j.jobs);
+    if (s.ok) setStatus(s.data); else setErr(s.error);
+    if (u.ok) setUsage(u.data);
+    if (j.ok) setJobs(j.data.jobs);
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   const openJob = useCallback(async (id: number) => {
     setSelected(id);
-    const d = await fetch(`/api/jobs/${id}`).then((r) => r.json());
+    const got = await callApi<Detail>(`/api/jobs/${id}`);
+    if (!got.ok) { setErr(got.error); return; }
+    const d = got.data;
     setDetail(d);
     setLiveLogs(d.logs ?? []);
 
@@ -98,7 +136,8 @@ export default function Page() {
       });
       es.addEventListener("end", async () => {
         es.close();
-        setDetail(await fetch(`/api/jobs/${id}`).then((r) => r.json()));
+        const fin = await callApi<Detail>(`/api/jobs/${id}`);
+        if (fin.ok) setDetail(fin.data);
         void refresh();
       });
     }
@@ -107,43 +146,47 @@ export default function Page() {
   useEffect(() => () => esRef.current?.close(), []);
   useEffect(() => { logEnd.current?.scrollIntoView({ block: "end" }); }, [liveLogs]);
 
-  const patch = async (p: Partial<Settings>) => {
-    const r = await fetch("/api/settings", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
-    }).then((x) => x.json());
-    if (r.settings) { setStatus((s) => (s ? { ...s, settings: r.settings } : s)); void refresh(); }
+  const saveSettings = async (body: unknown) => {
+    const r = await callApi<{ settings: Settings }>("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!r.ok) { setErr(r.error); return; }
+    setStatus((s) => (s ? { ...s, settings: r.data.settings } : s));
+    void refresh();
   };
-  const resetAll = async () => {
-    const r = await fetch("/api/settings", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reset: true }),
-    }).then((x) => x.json());
-    setStatus((s) => (s ? { ...s, settings: r.settings } : s));
-  };
+  const patch = (p: Partial<Settings>) => saveSettings(p);
+  const resetAll = () => saveSettings({ reset: true });
 
   const login = async () => {
-    setErr("");
-    const r = await fetch("/api/naver/login", { method: "POST" }).then((x) => x.json());
-    if (r.error) setErr(r.error);
-    void refresh(true);
+    if (loggingIn) return;
+    setErr(""); setLoggingIn(true);
+    try {
+      const r = await callApi<{ ok: boolean }>("/api/naver/login", { method: "POST" });
+      if (!r.ok) setErr(r.error);
+    } finally {
+      setLoggingIn(false);
+      void refresh(true);
+    }
   };
 
   const pickFolder = async () => {
-    const r = await fetch("/api/pick-folder", { method: "POST" }).then((x) => x.json());
-    if (r.path) setPhotoFolder(r.path);
-    else if (r.error) setErr(r.error);
+    setErr("");
+    const r = await callApi<{ path?: string; canceled?: boolean }>("/api/pick-folder", { method: "POST" });
+    if (!r.ok) { setErr(r.error); return; }
+    if (r.data.path) setPhotoFolder(r.data.path);
   };
 
   const start = async () => {
     if (starting || !keyword.trim()) return;
     setStarting(true); setErr("");
     try {
-      const r = await fetch("/api/jobs", {
+      const r = await callApi<{ id: number }>("/api/jobs", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, keyword, photoSource, imageStyle, photoFolder, placement, userContent }),
-      }).then((x) => x.json());
-      if (r.error) { setErr(r.error); return; }
+      });
+      if (!r.ok) { setErr(r.error); return; }
       await refresh();
-      await openJob(r.id);
+      await openJob(r.data.id);
     } finally { setStarting(false); }
   };
 
@@ -211,7 +254,9 @@ export default function Page() {
               <br />
               <b>새 창이 뜨면 “로그인 상태 유지”를 꼭 켜주세요.</b> 안 하면 몇 시간 뒤 다시 로그인해야 합니다.
             </span>
-            <button className="btn btn-primary" onClick={login}>네이버 로그인</button>
+            <button className="btn btn-primary" onClick={login} disabled={loggingIn}>
+              {loggingIn ? "로그인 창을 여는 중…" : "네이버 로그인"}
+            </button>
           </div>
         )}
 

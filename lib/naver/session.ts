@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { newContext, closeQuietly } from "@/lib/playwright";
 import { NAVER } from "@/lib/scrape/selectors";
 import { PATHS, ensureDataDirs } from "@/lib/paths";
@@ -31,9 +32,28 @@ export async function loginInteractive(
   loginInFlight = true;
   ensureDataDirs();
 
-  // ⚠️ 반드시 headless:false. 사용자가 직접 입력해야 합니다.
-  const { browser, context } = await newContext({ headless: false });
+  /**
+   * ⚠️ 브라우저 실행을 반드시 try 안에서 합니다.
+   *   전에는 이 줄이 try "밖"에 있어서, 실행이 실패하면 예외가 이 함수를 그대로 빠져나가
+   *   API 라우트까지 올라가 500(HTML) 이 되었습니다. 화면은 그 500 을 JSON 으로 읽으려다
+   *   또 터져서, 사용자에게는 아무 안내도 뜨지 않고 개발 배지에 "1 Issue" 만 남았습니다.
+   *   게다가 finally 가 실행되지 않아 loginInFlight 이 영원히 true 로 남아,
+   *   이후 로그인 시도가 전부 "이미 로그인 창이 열려 있습니다" 로 거절되었습니다(앱 재시작 전까지).
+   */
+  let browser: Awaited<ReturnType<typeof newContext>>["browser"] | null = null;
   try {
+    // ⚠️ 반드시 headless:false. 사용자가 직접 입력해야 합니다.
+    let context: Awaited<ReturnType<typeof newContext>>["context"];
+    try {
+      const ctx = await newContext({ headless: false });
+      browser = ctx.browser;
+      context = ctx.context;
+    } catch (e) {
+      const raw = (e as Error).message;
+      writeLaunchLog(raw);
+      return { ok: false, error: launchErrorMessage(raw) };
+    }
+
     const page = await context.newPage();
     await page.goto(NAVER.login, { waitUntil: "domcontentloaded", timeout: 60000 });
     onLog?.("로그인 창을 열었습니다. 창에서 직접 로그인해 주세요.");
@@ -70,9 +90,43 @@ export async function loginInteractive(
   } catch (e) {
     return { ok: false, error: `로그인 중 문제가 생겼습니다: ${(e as Error).message}` };
   } finally {
+    // ⚠️ 어떤 경로로 빠져나가든 반드시 해제합니다. 안 그러면 다시 로그인할 수 없습니다.
     loginInFlight = false;
     await closeQuietly(browser);
   }
+}
+
+/**
+ * 브라우저를 못 띄웠을 때, 원문 대신 사람이 읽는 문장으로 바꿉니다.
+ *
+ * ⚠️ 판별 순서가 중요합니다. 구체적인 원인을 먼저 검사하세요.
+ *   전에는 "browser has been closed" 를 먼저 검사해서, 실제 원인이 "화면이 없음"인데도
+ *   "창이 예상보다 빨리 닫혔습니다" 라는 엉뚱한 안내가 나갔습니다.
+ *   Playwright 는 진짜 원인을 첫 줄이 아니라 "Browser logs:" 아래에 적어두므로
+ *   첫 줄만 보지 말고 원문 전체에서 찾아야 합니다.
+ */
+function launchErrorMessage(raw: string): string {
+  if (/Executable doesn'?t exist|please run .*install|npx playwright install/i.test(raw)) {
+    return "네이버 로그인 창을 띄울 브라우저가 설치되지 않았습니다. 명령어 창에서 npx playwright install chromium 을 실행한 뒤 다시 눌러주세요.";
+  }
+  if (/Missing X server|\$DISPLAY|without having a XServer|no display/i.test(raw)) {
+    return "화면이 없는 환경이라 로그인 창을 띄울 수 없습니다. 이 앱은 화면이 있는 내 컴퓨터에서 실행해야 합니다.";
+  }
+  if (/EACCES|EPERM|access is denied|permission denied/i.test(raw)) {
+    return "브라우저를 실행할 권한이 없습니다. 백신이나 보안 프로그램이 막고 있는지 확인해 주세요.";
+  }
+  const first = raw.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  return `네이버 로그인 창을 띄우지 못했습니다. 자세한 내용을 data/login-error.log 에 적어두었으니 그 파일을 알려주세요. (${first.slice(0, 120)})`;
+}
+
+/** 원문 오류는 화면에 쏟지 않고 파일에 남깁니다. */
+function writeLaunchLog(raw: string): void {
+  try {
+    fs.writeFileSync(
+      path.join(PATHS.root, "login-error.log"),
+      `${new Date().toISOString()}\n플랫폼: ${process.platform}\n\n${raw}\n`,
+    );
+  } catch { /* 로그 실패가 로그인 실패를 덮으면 안 됩니다 */ }
 }
 
 export function hasSessionFile(): boolean {

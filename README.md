@@ -99,6 +99,8 @@ npm run typecheck
 - ⚠️ `npm run build` 를 돌린 뒤 `npm run dev` 를 그대로 띄우면 `.next` 의 프로덕션 산출물과
   충돌해 모든 요청이 **500** 이 됩니다. 전환할 때는 `.next` 를 지우세요.
   (dev 서버를 두 개 띄운 채 `.next` 를 지워도 같은 증상이 납니다.)
+- 네이버 로그인이 안 되면 `data/login-error.log` 에 Playwright 원문이 남습니다.
+  화면에는 사람이 읽는 문장만 띄우고 원문은 쏟지 않습니다.
 - 로그인 후 처음 할 일: `npm run probe` — 살아 있는 에디터를 3단계로 실측해
   `data/dumps/` 에 덤프와 스크린샷을 남깁니다. 셀렉터가 안 맞으면 이 결과를 근거로
   `selectors.ts` 후보 배열 **앞에** 새 값을 추가하세요.
