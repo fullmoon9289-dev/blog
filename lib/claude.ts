@@ -35,13 +35,22 @@ const IS_WIN = process.platform === "win32";
  * ⚠️ shell: true 를 써도 안전합니다.
  * 프롬프트를 argv 가 아니라 stdin 으로 넘기기 때문에 argv 에는 고정 플래그밖에 없고,
  * 셸 인용부호 문제가 생길 여지가 없습니다.
+ *
+ * ⚠️ 윈도우에서는 args 배열을 따로 넘기지 않고 "명령 한 문자열"로 넘깁니다.
+ *   args 배열 + shell:true 조합은 Node 24 에서 매 호출마다 경고를 뿜습니다(실제 사용자 화면에서 확인):
+ *     [DEP0190] Passing args to a child process with shell option true can lead to
+ *     security vulnerabilities, as the arguments are not escaped, only concatenated.
+ *   Node 24.20.0 으로 직접 재현·수정 확인했습니다 — 배열로 넘기면 경고, 문자열로 넘기면 경고 없음.
+ *   동작(stdin 전달·종료코드)은 양쪽 동일합니다.
+ *   여기서 이어붙이는 args 는 전부 코드에 박힌 고정 플래그이고 사용자 입력이 아닙니다.
+ *   claudeBin 은 경로에 공백이 있을 수 있어 따옴표로 감쌉니다.
  */
 function spawnClaude(args: string[]) {
-  return spawn(CONFIG.claudeBin, args, {
-    shell: IS_WIN,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
-  });
+  const stdio: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
+  if (IS_WIN) {
+    return spawn(`"${CONFIG.claudeBin}" ${args.join(" ")}`, { shell: true, stdio, env: process.env });
+  }
+  return spawn(CONFIG.claudeBin, args, { shell: false, stdio, env: process.env });
 }
 
 export async function runClaude(
