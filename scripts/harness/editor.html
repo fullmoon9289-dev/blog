@@ -60,6 +60,26 @@
   <button class="se-strikethrough-toolbar-button">취소선</button>
 </div>
 
+<button data-click-area="tpb.publish" id="pubopen" style="position:fixed;right:12px;top:8px;z-index:6">발행</button>
+<button class="reserve" style="position:fixed;right:70px;top:8px;z-index:6">예약 발행 0건</button>
+
+<div class="publish-layer" id="publayer" style="display:none;position:fixed;right:10px;top:44px;
+     background:#fff;border:1px solid #999;padding:14px;z-index:70">
+  <div class="vis-group">
+    <!-- ⚠️ 7-19 재현: radio 는 opacity:0 이라 클릭되지 않습니다. label 을 눌러야 합니다.
+         그리고 네이버 기본값은 전체공개(open_public, value=2)입니다. -->
+    <label for="open_public">전체공개</label>
+    <input type="radio" name="vis" id="open_public" value="2" checked style="opacity:0;width:13px;height:13px">
+    <label for="open_neighbor">이웃공개</label>
+    <input type="radio" name="vis" id="open_neighbor" value="1" style="opacity:0;width:13px;height:13px">
+    <label for="open_both_neighbor">서로이웃공개</label>
+    <input type="radio" name="vis" id="open_both_neighbor" value="3" style="opacity:0;width:13px;height:13px">
+    <label for="open_private">비공개</label>
+    <input type="radio" name="vis" id="open_private" value="0" style="opacity:0;width:13px;height:13px">
+  </div>
+  <button data-click-area="tpb*i.publish" id="pubconfirm">발행</button>
+</div>
+
 <div class="se-content">
   <div class="se-component se-documentTitle se-section-documentTitle">
     <div class="se-text-paragraph" contenteditable="true" data-role="title"></div>
@@ -77,7 +97,7 @@
 
 <script>
 // ── 계측기 ──────────────────────────────────────────────────
-window.__probe = { strikeClicks: 0, uploads: 0, escapePresses: 0 };
+window.__probe = { strikeClicks: 0, uploads: 0, escapePresses: 0, confirmClicks: 0, publishedAs: null };
 
 const $ = (s) => document.querySelector(s);
 const content = $(".se-content");
@@ -93,6 +113,14 @@ $(".se-popup-button-cancel").onclick = () => {
 };
 $(".se-help-panel-close-button").onclick = () => { $(".se-help-container")?.remove(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") window.__probe.escapePresses++; });
+
+// 발행 레이어
+$("#pubopen").onclick = () => { $("#publayer").style.display = "block"; };
+$("#pubconfirm").onclick = () => {
+  window.__probe.confirmClicks++;
+  const sel = document.querySelector('input[name="vis"]:checked');
+  window.__probe.publishedAs = sel ? sel.id : null;
+};
 
 // 현재 편집 중인 컴포넌트
 function currentComp() {

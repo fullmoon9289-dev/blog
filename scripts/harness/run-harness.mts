@@ -178,6 +178,50 @@ console.log(`     결과: ${noBody.status} — ${noBody.note}`);
 t("본문을 못 찾으면 조용히 진행하지 않고 실패 처리한다", noBody.status === "failed", noBody.status);
 t("실패 시 스크린샷을 남긴다", Boolean(noBody.screenshot && fs.existsSync(noBody.screenshot)));
 
+// ── 시나리오 3: 실제 발행 경로 — 공개 범위 가드 (7-19) ──────────
+console.log("\n  · 공개 범위 가드 (7-19) — 발행 레이어가 정상일 때");
+type PubProbe = { confirmClicks: number; publishedAs: string | null };
+let pub: PubProbe | null = null;
+const okRun = await publishDraft({
+  blogId: "harness", draft: { title: "가드 테스트", sections: [{ type: "paragraph", text: "본문입니다." }] },
+  imagePaths: [], dryRun: false, visibility: "private", headless: true,
+  entryUrl: fileUrl("outer.html"), screenshotName: "harness-vis-ok.png",
+  onLog: () => {},
+  onInspect: async (_p, fr) => {
+    pub = await fr.locator("body").first().evaluate((b) => {
+      const w = (b.ownerDocument.defaultView as unknown as { __probe: PubProbe }).__probe;
+      return { confirmClicks: w.confirmClicks, publishedAs: w.publishedAs };
+    });
+  },
+});
+console.log(`     결과: ${okRun.status} — ${okRun.note}`);
+const pubOk: PubProbe = pub ?? { confirmClicks: 0, publishedAs: null };
+t("공개 범위가 확인되면 최종 확인 버튼을 누른다", pubOk.confirmClicks === 1, `${pubOk.confirmClicks}회`);
+t("비공개로 눌렸다 (네이버 기본값 전체공개를 덮어씀)",
+  pubOk.publishedAs === "open_private", String(pubOk.publishedAs));
+t("게시글 주소가 아니면 발행 성공으로 보고하지 않는다 (7-11)",
+  okRun.status === "failed" && /임시저장/.test(okRun.note), okRun.status);
+
+console.log("\n  · 공개 범위 가드 (7-19) — 공개 범위 항목을 못 찾을 때");
+let pub2: PubProbe | null = null;
+const guardRun = await publishDraft({
+  blogId: "harness", draft: { title: "가드 테스트", sections: [{ type: "paragraph", text: "본문입니다." }] },
+  imagePaths: [], dryRun: false, visibility: "private", headless: true,
+  entryUrl: fileUrl("outer-no-visibility.html"), screenshotName: "harness-vis-missing.png",
+  onLog: () => {},
+  onInspect: async (_p, fr) => {
+    pub2 = await fr.locator("body").first().evaluate((b) => {
+      const w = (b.ownerDocument.defaultView as unknown as { __probe: PubProbe }).__probe;
+      return { confirmClicks: w.confirmClicks, publishedAs: w.publishedAs };
+    });
+  },
+});
+const pubGuard: PubProbe = pub2 ?? { confirmClicks: -1, publishedAs: null };
+console.log(`     결과: ${guardRun.status} — ${guardRun.note}`);
+t("공개 범위를 못 찾으면 발행하지 않고 중단한다 (7-19)",
+  guardRun.status === "failed" && /공개 범위/.test(guardRun.note), guardRun.note.slice(0, 50));
+t("★ 최종 확인 버튼이 한 번도 눌리지 않았다", pubGuard.confirmClicks === 0, `${pubGuard.confirmClicks}회`);
+
 console.log("\n  로그:");
 for (const l of logs) console.log(`     · ${l}`);
 console.log(`\n  ${fail === 0 ? "→ 하네스 전부 통과" : `${fail}건 실패`}\n`);

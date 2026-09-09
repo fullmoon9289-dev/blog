@@ -65,24 +65,16 @@
 
 <div class="publish-layer" id="publayer" style="display:none;position:fixed;right:10px;top:44px;
      background:#fff;border:1px solid #999;padding:14px;z-index:70">
-  <div class="vis-group">
-    <!-- ⚠️ 7-19 재현: radio 는 opacity:0 이라 클릭되지 않습니다. label 을 눌러야 합니다.
-         그리고 네이버 기본값은 전체공개(open_public, value=2)입니다. -->
-    <label for="open_public">전체공개</label>
-    <input type="radio" name="vis" id="open_public" value="2" checked style="opacity:0;width:13px;height:13px">
-    <label for="open_neighbor">이웃공개</label>
-    <input type="radio" name="vis" id="open_neighbor" value="1" style="opacity:0;width:13px;height:13px">
-    <label for="open_both_neighbor">서로이웃공개</label>
-    <input type="radio" name="vis" id="open_both_neighbor" value="3" style="opacity:0;width:13px;height:13px">
-    <label for="open_private">비공개</label>
-    <input type="radio" name="vis" id="open_private" value="0" style="opacity:0;width:13px;height:13px">
-  </div>
+  <div class="vis-group"><!-- 라디오 없음 --></div>
   <button data-click-area="tpb*i.publish" id="pubconfirm">발행</button>
 </div>
 
-<div class="se-content NO-BODY">
+<div class="se-content">
   <div class="se-component se-documentTitle se-section-documentTitle">
     <div class="se-text-paragraph" contenteditable="true" data-role="title"></div>
+  </div>
+  <div class="se-component se-text se-section-text">
+    <div class="se-text-paragraph" contenteditable="true"></div>
   </div>
 </div>
 
