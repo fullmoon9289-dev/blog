@@ -13,7 +13,7 @@
     "doctor": "tsx scripts/doctor.mts"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.11.1",
     "next": "^15.5.25",
     "playwright": "^1.56.1",
     "react": "^19.0.0",
@@ -27,5 +27,8 @@
     "@types/react-dom": "^19.0.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
